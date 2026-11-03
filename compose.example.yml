@@ -1,0 +1,57 @@
+# Example deployment. Your TLS-terminating reverse proxy forwards:
+#   https://nexus.example.com      -> bridge:8081
+#   nexus.example.com:5000 (TLS)   -> bridge:5000
+#
+# Nexus publishes NO ports. Anyone who can reach Nexus directly can
+# impersonate any user through the trusted header.
+
+services:
+  nexus:
+    image: sonatype/nexus3:latest
+    restart: unless-stopped
+    volumes:
+      - nexus-data:/nexus-data
+    networks: [nexus]
+    # no "ports:" on purpose
+
+  bridge:
+    build: .
+    restart: unless-stopped
+    depends_on: [nexus]
+    environment:
+      BASE_URL: https://nexus.example.com
+      NEXUS_URL: http://nexus:8081
+      NEXUS_DOCKER_URL: http://nexus:5000
+      NEXUS_ADMIN_USER: github-bridge
+      NEXUS_ADMIN_PASSWORD_FILE: /run/secrets/nexus_admin_password
+      GITHUB_CLIENT_ID: Iv1.0123456789abcdef
+      GITHUB_CLIENT_SECRET_FILE: /run/secrets/github_client_secret
+      GITHUB_ORGS: myorg
+      ROLE_MAP: myorg~platform=nx-admin,myorg=nx-developer
+      SESSION_SECRET_FILE: /run/secrets/session_secret
+    secrets:
+      - nexus_admin_password
+      - github_client_secret
+      - session_secret
+    networks: [nexus, edge]
+    # Publish only to your reverse proxy. If the reverse proxy runs in
+    # Compose on the "edge" network, remove "ports:" entirely.
+    ports:
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:5000:5000"
+
+secrets:
+  nexus_admin_password:
+    file: ./secrets/nexus_admin_password
+  github_client_secret:
+    file: ./secrets/github_client_secret
+  session_secret:
+    file: ./secrets/session_secret # e.g. `openssl rand -base64 48`
+
+volumes:
+  nexus-data:
+
+networks:
+  # Not "internal": Nexus needs internet access for proxy repositories.
+  nexus: {}
+  edge: {}

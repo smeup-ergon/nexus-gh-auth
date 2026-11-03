@@ -1,0 +1,41 @@
+# End-to-end test stack: real Nexus Community + bridge + fake GitHub.
+# Run with e2e/run.sh. Not a deployment example (see compose.example.yml).
+name: nexus-gh-auth-e2e
+
+services:
+  nexus:
+    image: sonatype/nexus3:${NEXUS_VERSION:-latest}
+    environment:
+      INSTALL4J_ADD_VM_PARAMS: -Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g
+    # Published on loopback only so the test script can bootstrap Nexus;
+    # a real deployment publishes no Nexus ports.
+    ports: ["127.0.0.1:18081:8081"]
+
+  fakegithub:
+    build:
+      context: ..
+      dockerfile: e2e/fakegithub.Dockerfile
+    command: ["-listen", ":9000", "-users", "alice:1:myorg/platform,bob:2:myorg/dev"]
+    ports: ["127.0.0.1:19000:9000"]
+
+  bridge:
+    build: ..
+    restart: unless-stopped
+    depends_on: [nexus, fakegithub]
+    environment:
+      BASE_URL: http://127.0.0.1:28081
+      NEXUS_ADMIN_USER: github-bridge
+      NEXUS_ADMIN_PASSWORD: bridge-password
+      GITHUB_CLIENT_ID: test-client
+      GITHUB_CLIENT_SECRET: test-secret
+      # The test script rewrites this host to 127.0.0.1:19000 when it
+      # follows the authorize redirect, like a browser on another network.
+      GITHUB_URL: http://fakegithub:9000
+      GITHUB_API_URL: http://fakegithub:9000/api
+      GITHUB_ORGS: myorg
+      ROLE_MAP: myorg~platform=nx-admin,myorg~dev=nx-developer
+      SESSION_SECRET: e2e-session-secret-that-is-at-least-32-bytes
+      NEXUS_STARTUP_TIMEOUT: 10m
+    ports:
+      - "127.0.0.1:28081:8081"
+      - "127.0.0.1:25000:5000"
